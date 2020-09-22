@@ -1,0 +1,38 @@
+<h4><?php $this->_('dhc.client.tab.results')?></h4>
+
+<div class="table-responsive">
+    <table class="table table-curved table-striped">
+        <thead>
+            <tr>
+                <th style="width: 15%;"><?php echo $this->_('dhc.category'); ?></th>
+                <th><?php echo $this->_('dhc.status'); ?></th>
+                <th style="width: 23%;"><?php echo $this->_('dhc.test'); ?></th>
+                <th><?php echo $this->_('dhc.details'); ?></th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php
+            $count = 0;
+            foreach($data as $category => $test)
+            {
+                $i = 0;
+                foreach($test as $name => $result)
+                {
+            ?>
+            <tr>
+                <?php if(++$i == 1) { ?>
+                <td rowspan="<?php echo count($data[$category]); ?>" style="vertical-align: top;"><?php Language::_('dhc.category.'.$category); ?></td>
+                <!--<td rowspan="<?php echo count($data[$category]); ?>" style="vertical-align: top;border-right: 1px solid #e1e1e1;<?php if($count % 2 == 1) {?> background-color: #fff;<?php } else {?> background-color: #f9f9f9;<?php } ?>"><?php Language::_('dhc.category.'.$category); ?></td>-->
+                <?php } ?>
+                <td style="text-align: center;"><i class="<?php echo $result->getIcon(); ?>" aria-hidden="true"></i></td>
+                <td><?php echo $result->getTest(); ?></td>
+                <td><?php echo $result->getMessage(); ?></td>
+            </tr>
+            <?php
+                }
+                $count++;
+            } 
+            ?>
+        </tbody>
+    </table>
+</div>

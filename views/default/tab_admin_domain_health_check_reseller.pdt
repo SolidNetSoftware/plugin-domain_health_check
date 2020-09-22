@@ -1,0 +1,33 @@
+<div class="title_row first">
+    <h3><?php $this->_('dhc.client.tab.reseller')?></h3>
+</div>
+
+<div class="pad">
+    <table class="table">
+        <thead>
+            <tr class="heading_row">
+                <td><?php $this->_('dhc.client.domain'); ?></td>
+                <td><?php $this->_('dhc.client.username'); ?></td>
+                <td><?php $this->_('dhc.client.suspended'); ?></td>
+                <td><?php $this->_('dhc.client.check'); ?></td>
+            </tr>
+        </thead>
+        <tbody>
+            <?php
+            $count = 0;
+            foreach($domains as $domain)
+            {
+                $suspended = ($domain->suspended) ? $this->_('dhc.client.suspended', true) : '';
+            ?>
+            <tr<?php echo $this->Html->concat('', (++$count % 2 === 1) ? ' class="odd_row"' : '','');?>>
+                <td><?php echo $this->Html->safe($domain->domain); ?></td>
+                <td><?php echo $this->Html->safe($domain->user); ?></td>
+                <td><?php echo $this->Html->safe($suspended); ?></td>
+                <td><a href="<?php echo $_SERVER['REQUEST_URI'] . $this->Html->safe($domain->domain); ?>"><?php $this->_('dhc.client.check'); ?></a></td>
+            </tr>
+            <?php
+            } 
+            ?>
+        </tbody>
+    </table>
+</div>
