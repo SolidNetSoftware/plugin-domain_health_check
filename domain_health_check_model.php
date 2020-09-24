@@ -155,25 +155,24 @@ class DomainHealthCheckModel extends AppModel {
         }
     }
 
-    protected function dnsQueryIPAll($record, $nameserver)
-    {
-        $a_results = $this->dnsQuery($record, 'A', $nameserver);
-        $aaaa_results = $this->dnsQuery($record, 'AAAA', $nameserver);
-
-        return $this->mergeAnswers($a_results, $aaaa_results);
-    }
-
-    protected function mergeAnswers($a_results, $aaaa_results)
+    protected function dnsQueryAll($record, $nameserver, $query)
     {
         $ret = [];
 
-        if(get_class($a_results) === 'Net_DNS2_Packet_Response')
-            $ret = array_merge($ret, $a_results->answer);
-
-        if(get_class($aaaa_results) === 'Net_DNS2_Packet_Response')
-            $ret = array_merge($ret, $aaaa_results->answer);
+        foreach($query as $type) {
+            $results = $this->dnsQuery($record, $type, $nameserver);
+            $ret = $this->mergeAnswers($ret, $results);
+        }
 
         return $ret;
+    }
+
+    protected function mergeAnswers($a1, $a2)
+    {
+        if(get_class($a2) === 'Net_DNS2_Packet_Response')
+            return array_merge($a1, $a2->answer);
+
+        return $a1;
     }
 
 }

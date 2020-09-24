@@ -13,7 +13,8 @@ class DomainHealthCheckA extends DomainHealthCheckModel
         $nameserver_address = $this->getFirstNameserver($nameservers->getRaw());
 
         $parser = $this->getDomainParser()->resolve($domain);
-        $domain = $parser->getRegistrableDomain(); // removes www and subdomains
+        if($parser->getLabel(-1) === 'www') // remove www if on domain
+            $domain = $parser->withoutLabel(-1);
 
         // Print all A/AAAA Records
         $a = $this->getA($domain, $nameserver_address);
@@ -29,7 +30,7 @@ class DomainHealthCheckA extends DomainHealthCheckModel
 
     public function getA($domain, $nameserver)
     {
-        $result = $this->getRecord($domain, $nameserver, 'A');
+        $result = $this->getRecord($domain, $nameserver);
 
         if(empty($result))
             return $this->DomainResults::with('bad', 'dhc.test.a', Language::_('dhc.message.a.missing', true));
@@ -39,7 +40,7 @@ class DomainHealthCheckA extends DomainHealthCheckModel
 
     public function getWWW($domain, $nameserver)
     {
-        $result = $this->getRecord(sprintf('www.%s', $domain), $nameserver, 'CNAME');
+        $result = $this->getRecord(sprintf('www.%s', $domain), $nameserver);
 
         if(empty($result))
             return $this->DomainResults::with('bad', 'dhc.test.a.www', Language::_('dhc.message.a.www.missing', true));
@@ -47,20 +48,14 @@ class DomainHealthCheckA extends DomainHealthCheckModel
         return $this->DomainResults::with('good', 'dhc.test.a.www', sprintf(Language::_('dhc.message.a.www.found', true), $result));
     }
 
-    protected function getRecord($domain, $nameserver, $format)
+    protected function getRecord($domain, $nameserver)
     {
-        if($format === 'CNAME')
-            $answers[] = $this->dnsQuery($domain, 'CNAME', $nameserver);
-        else
-            $answers = $this->dnsQueryIPAll($domain, $nameserver);
+        $answers = $this->dnsQueryAll($domain, $nameserver, ['A', 'AAAA']);
 
         $result = '';
         foreach($answers as $record)
             if(get_class($record) === 'Net_DNS2_RR_A' || get_class($record) === 'Net_DNS2_RR_AAAA' || get_class($record) === 'Net_DNS2_RR_CNAME')
-                if($format === 'A')
-                    $result .= sprintf('%s [%s]<br />', $domain, $record->address);
-                else if ($format === 'CNAME')
-                    $result .= sprintf('%s &nbsp;&nbsp; %s &nbsp;&nbsp; [%s]<br />', $record->name, $record->type, (get_class($record) === 'Net_DNS2_RR_CNAME') ? $record->cname : $record->address);
+                $result .= sprintf('%s &nbsp;&nbsp; %s &nbsp;&nbsp; [%s]<br />', $record->name, $record->type, (get_class($record) === 'Net_DNS2_RR_CNAME') ? $record->cname : $record->address);
 
         return $result;
     }
