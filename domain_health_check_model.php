@@ -12,6 +12,7 @@ class DomainHealthCheckModel extends AppModel {
         parent::__construct();
 
         Loader::loadModels($this, ['DomainHealthCheck.DomainResults']);
+        Loader::loadComponents($this, ['Input']);
 
         Loader::load(dirname(__FILE__) . DS . 'vendors' . DS . 'spf-lib'  . DS . 'vendor' . DS . 'autoload.php');
         Loader::load(dirname(__FILE__) . DS . 'vendors' . DS . 'net_dns2'  . DS . 'vendor' . DS . 'autoload.php');
@@ -20,6 +21,7 @@ class DomainHealthCheckModel extends AppModel {
         $this->_domainData = $this->getUploadDirectory() . 'tlds-alpha-by-domain.txt';
 
         Configure::load('domain_health_check', dirname(__FILE__) . DS . 'config' . DS);
+        Language::loadLang('domain_health_check_plugin', null, dirname(__FILE__) . DS . 'language' . DS);
     }
 
     private function getUploadDirectory()
@@ -71,6 +73,22 @@ class DomainHealthCheckModel extends AppModel {
     private function createSPF()
     {
         $this->_spf = new \SPFLib\Decoder();
+    }
+
+    public function parseJson($json, $use_array = false)
+    {
+        if (!isset($this->Json) || !($this->Json instanceof Json))
+            Loader::loadComponents($this, ['Json']);
+
+        $result = $this->Json->decode($json, $use_array);
+
+        // Set internal error
+        if (!$result) {
+            $this->Input->setErrors(['api' => ['internal' => Language::_('dhc.api.error', true)]]);
+            return;
+        }
+
+        return $result;
     }
 
     public function performHealthCheck($domain)
