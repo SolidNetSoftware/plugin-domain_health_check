@@ -2,7 +2,7 @@
 
 class DomainHealthCheckPlugin extends Plugin
 {
-    private $supported_modules = ['cpanel'];
+    private $supported_modules = ['cpanel', 'direct_admin'];
 
     public function __construct()
     {
@@ -10,14 +10,11 @@ class DomainHealthCheckPlugin extends Plugin
 
         Language::loadLang('domain_health_check_plugin', null, dirname(__FILE__) . DS . 'language' . DS);
 
-        if (!isset($this->Record)) {
-            Loader::loadComponents($this, ['Input', 'Record']);
-        }
+        Loader::loadComponents($this, ['Input', 'Record']);
     }
 
     public function install($plugin_id)
     {
-
         // check for PHP version
         if(version_compare(PHP_VERSION, '7.2.0', '<='))
         {
@@ -98,7 +95,7 @@ class DomainHealthCheckPlugin extends Plugin
         return true;
     }
 
-    private function getUploadDirectory()
+    protected function getUploadDirectory()
     {
         Loader::loadComponents($this, ['SettingsCollection']);
 
@@ -140,7 +137,7 @@ class DomainHealthCheckPlugin extends Plugin
         Loader::loadComponents($this, ['Upload']);
 
         $upload_dir = $this->getUploadDirectory();
-        $file_dest = $this->getUploadDirectory() . 'tlds-alpha-by-domain.txt';
+        $file_dest = $upload_dir . 'tlds-alpha-by-domain.txt';
 
         $this->Upload->createUploadPath($upload_dir);
 
@@ -252,18 +249,24 @@ class DomainHealthCheckPlugin extends Plugin
         return $this->generateTab('admin', $service, $get, $post, $files);
     }
 
-    private function generateTab($view, stdClass $service, array $get = null, array $post = null, array $files = null)
+    protected function generateTab($view, stdClass $service, array $get = null, array $post = null, array $files = null)
     {
         $this->view = new View();
         Loader::loadHelpers($this, ['Html']);
-        Loader::loadModels($this, ['ModuleManager', 'DomainHealthCheck.DomainHealthCheckModel']);
+        Loader::loadModels($this, [
+            'ModuleManager',
+            'DomainHealthCheck.DomainHealthCheckModel',
+            'DomainHealthCheck.DomainHealthCheckPanels'
+        ]);
 
         // Get module info
+        // Be careful, for what ever reason getRow does not set boolean values
+        // correctly but treats them as strings!
         $meta = $this->ModuleManager->getRow($service->module_row_id)->meta;
         $type = $service->package->meta->type;
+        $module = $this->getModuleByService($service);
 
-        // Get cPanel username and password
-        $cpanel_info = $this->getcPanel($service);
+        $control_panel_info = $this->extract_domain_user($service, sprintf('%s_domain', $module->class), sprintf('%s_username', $module->class));
 
         // admin vs client area details
         $get_count = 4;
@@ -277,33 +280,36 @@ class DomainHealthCheckPlugin extends Plugin
         // List all domains then perform health check
         if($type === 'reseller')
         {
-            $domains = $this->getAllAccounts($meta, $cpanel_info);
+            // dynamically call the method based on the module type
+            $domains = $this->DomainHealthCheckPanels->{sprintf('get_%s_accounts', $module->class)}($meta, $control_panel_info);
 
+            // Perform health check
             if(count($get) === $get_count && array_key_exists($get[$get_index], $domains))
             {
                 $domain = $get[$get_index];
                 $this->view->setView(sprintf('tab_%s_domain_health_check_results', $view), 'DomainHealthCheck.default');
                 $this->view->set('data', $this->DomainHealthCheckModel->performHealthCheck($domain));
+            // Domain not found, show list of all domains owned by reseller
             } else {
                 $this->view->setView(sprintf('tab_%s_domain_health_check_reseller', $view), 'DomainHealthCheck.default');
                 $this->view->set('domains', $domains);
             }
         // Perform health check
-        } else if($type === 'standard') {
+        } else if($type === 'standard' /*cPanel*/ || $type === 'user' /*Direct Admin*/) {
             $this->view->setView(sprintf('tab_%s_domain_health_check_results', $view), 'DomainHealthCheck.default');
-            $this->view->set('data', $this->DomainHealthCheckModel->performHealthCheck($cpanel_info['domain']));
+            $this->view->set('data', $this->DomainHealthCheckModel->performHealthCheck($control_panel_info['domain']));
         }
 
         return $this->view->fetch();
     }
 
-    private function getcPanel(stdClass $service)
+    protected function extract_domain_user(stdClass $service, $domain, $user)
     {
         // Get Domain and user
         foreach($service->fields as $key => $value)
-            if($value->key === 'cpanel_domain')
+            if($value->key === $domain)
                 $domain = $value->value;
-            else if($value->key === 'cpanel_username')
+            else if($value->key === $user)
                 $user = $value->value;
 
         return [
@@ -312,29 +318,13 @@ class DomainHealthCheckPlugin extends Plugin
         ];
     }
 
-    private function getAllAccounts(stdClass $meta, array $cpanel_info)
-    {
-        $domains = [];
-        $cpanel = $this->getCpanelApi($meta->host_name, $meta->user_name, $meta->key, $meta->use_ssl);
-        $accounts = $this->parseResponse($cpanel->listaccts('owner', $cpanel_info['user']));
-
-        if(empty($accounts))
-            return $domains[$cpanel_info['domain']] = (object) ['domain' => $cpanel_info['domain'], 'user' => $cpanel_info['user'], 'suspended' => ''];
-
-        foreach($accounts->acct as $account)
-            $domains[$account->domain] = (object) ['domain' => $account->domain, 'user' => $account->user, 'suspended' => $account->suspended];
-
-        ksort($domains, SORT_STRING); // cPanel does not have a deterministic way returning the data
-        return $domains;
-    }
-
     /**
      * Returns the module associated with a given service
      *
      * @param stdClass $service An stdClass object representing the selected service
      * @return mixed A stdClass object representing the module for the service
      */
-    private function getModuleByService(stdClass $service)
+    protected function getModuleByService(stdClass $service)
     {
         return $this->Record->select('modules.*')->
             from('module_rows')->
@@ -343,92 +333,4 @@ class DomainHealthCheckPlugin extends Plugin
             fetch();
     }
 
-    /**
-     * Initializes the CpanelApi and returns an instance of that object with the given $host, $user, and $pass set
-     *
-     * @param string $host The host to the cPanel server
-     * @param string $user The user to connect as
-     * @param string $pass The hash-pased password to authenticate with
-     * @return CpanelApi The CpanelApi instance
-     */
-    private function getcPanelApi($host, $user, $pass, $use_ssl = true)
-    {
-        Loader::load(COMPONENTDIR . DS . 'modules' . DS . 'cpanel' . DS . 'apis' . DS . 'cpanel_api.php');
-
-        $api = new CpanelApi($host);
-        $api->set_user($user);
-
-        // Determine whether this is a token or a key based on length
-        if (strlen($pass) > 32) {
-            $api->set_hash($pass);
-        } else {
-            $api->set_token($pass);
-        }
-        $api->set_output('json');
-        $api->set_port(($use_ssl ? 2087 : 2086));
-        $api->set_protocol('http' . ($use_ssl ? 's' : ''));
-
-        return $api;
-    }
-
-    /**
-     * Parses the response from the API into a stdClass object
-     *
-     * @param string $response The response from the API
-     * @return stdClass A stdClass object representing the response, void if the response was an error
-     */
-    private function parseResponse($response)
-    {
-        // Ready JSON
-        if (!isset($this->Json) || !($this->Json instanceof Json)) {
-            Loader::loadComponents($this, ['Json']);
-        }
-
-        $result = $this->Json->decode($response);
-        $success = true;
-
-        // Set internal error
-        if (!$result) {
-            $this->Input->setErrors(['api' => ['internal' => Language::_('dhc.api.error', true)]]);
-            $success = false;
-        }
-
-        // Only some API requests return status, so only use it if its available
-        if (isset($result->status) && $result->status == 0) {
-            $this->Input->setErrors(['api' => ['result' => $result->statusmsg]]);
-            $success = false;
-        } elseif (isset($result->result) && is_array($result->result)
-            && isset($result->result[0]->status) && $result->result[0]->status == 0
-        ) {
-            $this->Input->setErrors(['api' => ['result' => $result->result[0]->statusmsg]]);
-            $success = false;
-        } elseif (isset($result->passwd) && is_array($result->passwd)
-            && isset($result->passwd[0]->status) && $result->passwd[0]->status == 0
-        ) {
-            $this->Input->setErrors(['api' => ['result' => $result->passwd[0]->statusmsg]]);
-            $success = false;
-        } elseif (isset($result->cpanelresult) && !empty($result->cpanelresult->error)) {
-            $this->Input->setErrors(
-                [
-                    'api' => [
-                        'error' => (isset($result->cpanelresult->data->reason)
-                            ? $result->cpanelresult->data->reason
-                            : $result->cpanelresult->error
-                        )
-                    ]
-                ]
-            );
-            $success = false;
-        }
-
-        $sensitive_data = ['/PassWord:.*?(\\\\n)/i'];
-        $replacements = ['PassWord: *****${1}'];
-
-        // Return if any errors encountered
-        if (!$success) {
-            return;
-        }
-
-        return $result;
-    }
 }
